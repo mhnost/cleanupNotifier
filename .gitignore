@@ -1,0 +1,15 @@
+# Secrets -- SMTP relay credentials, never committed.
+.env
+
+# User data snapshots -- real usernames/emails/hostnames (PII). This
+# project's GDPR-minimal stance is that snapshots are never retained
+# between runs (see CONTEXT.md); they don't belong in git history either.
+*.csv
+
+# Reports written by the pipelines (also per-run data, not source).
+new_deactivations_report.csv
+
+# Python artifacts
+__pycache__/
+*.pyc
+.pytest_cache/
