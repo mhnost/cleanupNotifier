@@ -161,6 +161,17 @@ system's owner has the real answer) rather than defaults to bless.
 
 ## TODOs (implementation)
 
+0. **Known test debt (2026-08-12) — 2 failing tests in
+   `test_email_relay.py`**, present before any of this session's
+   changes and unrelated to them:
+   `test_warning_body_greets_by_display_name_when_present` and
+   `test_send_warning_email_passes_display_name_through` assert the
+   greeting starts with `"Hello X,"`, but `email_relay._greeting()`
+   actually produces `"Dear X,"`. The approved email copy (see
+   `CONTEXT.md` "Email Content") uses "Dear" — the tests are stale,
+   not the code. Fix by updating the two assertions to `"Dear "` next
+   time this file is touched.
+
 1. **Diff/comparison pipeline — built** (`snapshot_diff.py`,
    `snapshot_source.py`, `deactivation_report.py`). Reads the previous
    and current CSV dumps via `PREVIOUS_USER_SOURCE_CSV_PATH` /
