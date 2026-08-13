@@ -184,7 +184,7 @@ def test_warning_body_greets_by_display_name_when_present():
     body = email_relay.build_warning_body(
         last_logon=None, deadline_date=datetime(2026, 7, 30), display_name="Alice Andersen"
     )
-    assert body.startswith("Hello Alice Andersen,")
+    assert body.startswith("Dear Alice Andersen,")
 
 
 def test_warning_body_greets_generically_when_display_name_missing():
@@ -203,7 +203,7 @@ def test_send_warning_email_passes_display_name_through(monkeypatch):
     )
 
     body = FakeSMTP.instances[0].sent_messages[0].get_content()
-    assert body.startswith("Hello Bob Berg,")
+    assert body.startswith("Dear Bob Berg,")
 
 
 def test_build_summary_body_reports_counts_only():

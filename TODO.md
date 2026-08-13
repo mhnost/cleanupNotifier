@@ -46,6 +46,10 @@ left as `DOMAIN_PLACEHOLDER`) instead of static placeholder text — see
 `CONTEXT.md` "Email Drafts". Content is still unapproved and the
 domain-name source is still an open question (Open Question 2 below).
 
+**2026-08-13 — PO sign-off: Open Questions 1–5 all cleared.** Reviewed
+with PO in a dedicated meeting; each item below is now marked
+resolved inline. Only items 6–12 remain open.
+
 ## Open Questions (need an answer from the team / IT / CloudOps / DPO)
 
 **2026-07-29 — strawman proposals drafted for the 2026-07-30 meeting.**
@@ -55,29 +59,19 @@ starting blank. None of these are decided; they're starting points.
 Items 3 and 8 are flagged as genuine external facts (only IT/the other
 system's owner has the real answer) rather than defaults to bless.
 
-1. **Warning email template/content** and **deactivation-notification
-   email template/content** — a first draft of both now exists (see
-   `email_relay.build_warning_body`/`build_deactivation_notice_body`),
-   but the wording itself still needs review and approval.
-   **Proposed:** approve the current structure as-is (last logon date
-   or "no logon on record", a concrete deadline date, one clear CTA —
-   "log in before [date] to keep your account active"), neutral/
-   informational tone, plus a helpdesk contact line. Ask whether legal/
-   comms needs a look or PMO sign-off is sufficient.
-2. **Domain name source for the email body — implemented per the
-   proposed default (2026-08-05), pending PO confirmation.**
-   `email_relay.resolve_domain_display_name()` now maps the CSV's raw
-   `domain` column via `DOMAIN_DISPLAY_NAMES` (`ad.eg.no` → "EG",
-   `egrtest.no` → "EG Test", `egrutv.no` → "EG Utvikling"), falling back
-   to the raw value if unmapped and to `DOMAIN_PLACEHOLDER` only if no
-   domain is present at all. Wired end-to-end: `user_source.py` now
-   reads the `domain` column onto `CandidateUser`,
-   `email_notification_report.classify_all()` resolves it per row, and
-   `dispatch()` passes it through to `send_warning_email`/
-   `send_deactivation_notice_email`. **Still needs:** PO sign-off that
-   this mapping (and the fallback behavior) is correct before treating
-   it as settled — building it didn't require an answer, but shipping
-   it live does.
+1. **Warning email template/content and deactivation-notification email
+   template/content — approved (PO, 2026-08-13).** The structure
+   drafted in `email_relay.build_warning_body`/
+   `build_deactivation_notice_body` (last logon date or "no logon on
+   record", a concrete deadline date, one clear CTA, neutral/
+   informational tone, helpdesk contact line) is signed off as-is. No
+   legal/comms review requested — PO sign-off was sufficient.
+2. **Domain name source for the email body — confirmed (PO, 2026-08-13).**
+   `email_relay.resolve_domain_display_name()`'s mapping via
+   `DOMAIN_DISPLAY_NAMES` (`ad.eg.no` → "EG", `egrtest.no` → "EG Test",
+   `egrutv.no` → "EG Utvikling"), including the raw-value and
+   `DOMAIN_PLACEHOLDER` fallbacks, is confirmed correct and ready to
+   ship live.
 3. **SMTP relay connection details — resolved (2026-08-07).** Host
    `postal.egcloud.no`, port 25, service-account credential
    `egnorway/user-cleanup`, `SMTP_USE_TLS=false` (port 25, no
@@ -90,24 +84,16 @@ system's owner has the real answer) rather than defaults to bless.
    to `config.py` and `requirements.txt`) rather than being exported
    by hand. **Verified live:** a real `send_warning_email()` smoke
    test through this relay was received successfully at mnost@eg.no.
-4. **Rate limits and bounce handling** — does an accepted send count as
-   "warned"/"notified" even if it later bounces? Needs bounded
-   concurrency + backoff once real send volume is known, not a tight
-   per-user loop.
-   **Proposed:** start simple — no throttling/backoff in v1 (a
-   synchronous loop is fine at expected weekly volume), treat "relay
-   accepted the send" as "notified" (don't chase bounces yet), revisit
-   only if real volume/bounce rates turn out to be a problem. Ask if
-   anyone has a volume estimate to sanity-check "modest".
-5. **Missing-email safety net — implemented, policy not formally
-   reconfirmed.** `email_notification_report.dispatch()` now routes
+4. **Rate limits and bounce handling — confirmed (PO, 2026-08-13).**
+   No throttling/backoff in v1 (synchronous loop is fine at expected
+   weekly volume); "relay accepted the send" counts as "notified" —
+   bounces are not chased. Revisit only if real volume/bounce rates
+   become a problem.
+5. **Missing-email safety net — policy reconfirmed (PO, 2026-08-13).**
+   `email_notification_report.dispatch()`'s existing behavior — route
    accounts with an actionable outcome but no email on file to a
-   separate `missing_email` list instead of silently skipping them or
-   silently landing on `DEACTIVATE` with zero notice. The underlying
-   policy (route to manual review) was previously agreed but not
-   formally re-signed-off under the reverted scope.
-   **Proposed:** reconfirm the existing behavior as-is — manual review,
-   not silent skip and not silent deactivate-with-no-notice.
+   separate `missing_email` list for manual review, rather than silent
+   skip or silent deactivate-with-no-notice — is confirmed as-is.
 6. **Duplicate-send-on-rerun** — low-severity previously, but worth
    reconfirming now that live sending is back in scope.
    **Proposed:** treat repeat warning emails across consecutive weekly
@@ -161,16 +147,13 @@ system's owner has the real answer) rather than defaults to bless.
 
 ## TODOs (implementation)
 
-0. **Known test debt (2026-08-12) — 2 failing tests in
-   `test_email_relay.py`**, present before any of this session's
-   changes and unrelated to them:
-   `test_warning_body_greets_by_display_name_when_present` and
-   `test_send_warning_email_passes_display_name_through` assert the
-   greeting starts with `"Hello X,"`, but `email_relay._greeting()`
-   actually produces `"Dear X,"`. The approved email copy (see
-   `CONTEXT.md` "Email Content") uses "Dear" — the tests are stale,
-   not the code. Fix by updating the two assertions to `"Dear "` next
-   time this file is touched.
+0. **Test debt (2026-08-12) — fixed (2026-08-13).** The two stale
+   assertions in `test_email_relay.py`
+   (`test_warning_body_greets_by_display_name_when_present`,
+   `test_send_warning_email_passes_display_name_through`) expecting
+   `"Hello X,"` have been updated to `"Dear X,"` to match
+   `email_relay._greeting()`'s actual (and approved) output. All 21
+   tests in `test_email_relay.py` pass.
 
 1. **Diff/comparison pipeline — built** (`snapshot_diff.py`,
    `snapshot_source.py`, `deactivation_report.py`). Reads the previous
