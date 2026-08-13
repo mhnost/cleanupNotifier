@@ -1,16 +1,14 @@
 """
 SMTP relay for the end-user email requirement (warning +
-deactivation-notification emails, see CONTEXT.md "SMTP Relay (Sketch)"
-and "Email Drafts").
+deactivation-notification emails, see CONTEXT.md).
 
 Email delivery is on hold until explicitly turned on -- see
-config.WARNING_DELIVERY_ENABLED / config.DEACTIVATE_DELIVERY_ENABLED
-and ROLLOUT.md.
+config.WARNING_DELIVERY_ENABLED / config.DEACTIVATE_DELIVERY_ENABLED.
 
-Deliberately not addressed here (see TODO.md): rate limiting / bounded
-concurrency, bounce handling, retries/backoff, and the domain name shown
-in the email body -- that's a placeholder (DOMAIN_PLACEHOLDER) until the
-source of that value is decided.
+Deliberately not addressed here: rate limiting / bounded concurrency,
+bounce handling, and retries/backoff are all out of scope for v1
+(confirmed by PO, 2026-08-13) -- "relay accepted the send" counts as
+"notified".
 """
 
 import smtplib
@@ -20,9 +18,9 @@ from typing import Optional
 
 import config
 
-# Draft content -- wording still needs approval (see TODO.md). Not final
-# copy. WARNING_MIN_DAYS/DEACTIVATE_MIN_DAYS are confirmed (see
-# config.py), so the day counts below are safe to state as fact.
+# Approved email copy (PO, 2026-08-13). WARNING_MIN_DAYS/
+# DEACTIVATE_MIN_DAYS are confirmed (see config.py), so the day counts
+# below are safe to state as fact.
 WARNING_SUBJECT = "Your account will be deactivated soon"
 DEACTIVATION_NOTICE_SUBJECT = "Your account has been deactivated"
 
@@ -30,8 +28,8 @@ DEACTIVATION_NOTICE_SUBJECT = "Your account has been deactivated"
 # DOMAIN_DISPLAY_NAMES maps the raw AD/dashboard domain value to a
 # friendlier org name, falling back to the raw value if unmapped,
 # instead of showing the raw domain string to end users. Confirmed by
-# PMO (2026-08-07) as the full, current set of relevant domains -- see
-# TODO.md Open Question 2.
+# PMO (2026-08-07) as the full, current set of relevant domains; the
+# mapping and its fallback behavior are approved (PO, 2026-08-13).
 DOMAIN_DISPLAY_NAMES = {
     "egrdrift": "EG Drift",
     "egrtest": "EG Test",
@@ -53,7 +51,7 @@ DOMAIN_PLACEHOLDER = "[DOMAIN]"
 
 
 def resolve_domain_display_name(raw_domain: Optional[str]) -> str:
-    """Map a raw AD domain to its display name (TODO.md Open Question 2).
+    """Map a raw AD domain to its display name.
 
     Falls back to the raw domain string if it isn't in the mapping, and
     to DOMAIN_PLACEHOLDER if there's no raw domain at all.
@@ -157,7 +155,7 @@ def send_deactivation_notice_email(
     )
 
 
-# --- Admin run-summary (TODO.md item 9, confirmed by PMO 2026-08-07) ---
+# --- Admin run-summary (confirmed by PMO 2026-08-07) ---
 SUMMARY_SUBJECT = "Deactivation-tracking email run summary"
 
 
@@ -187,13 +185,13 @@ def send_admin_notification(recipients: list, subject: str, body: str) -> None:
 
 def send_summary_email(recipients: list, body: str) -> None:
     """Send the same run-summary body to every configured admin
-    recipient (TODO.md item 9). No-op if no recipients are configured."""
+    recipient. No-op if no recipients are configured."""
     send_admin_notification(recipients, SUMMARY_SUBJECT, body)
 
 
-# --- Circuit-breaker trip notification (TODO.md item 12, routed into
-# the same admin recipients as the run summary, confirmed by PMO
-# 2026-08-07) -- previously stderr-only. ---
+# --- Circuit-breaker trip notification (routed into the same admin
+# recipients as the run summary, confirmed by PMO 2026-08-07) --
+# previously stderr-only. ---
 CIRCUIT_BREAKER_TRIP_SUBJECT = "Deactivation-tracking pipeline aborted (circuit breaker tripped)"
 
 

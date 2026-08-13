@@ -6,30 +6,21 @@ already-existing system owns deactivation end to end. It has two jobs:
    snapshot and the current one), diff them, and report any accounts
    that newly became deactivated. Both snapshots are delivered together
    on every run — the agent never stores either one.
-2. **End-user emails** (reverted back into scope 2026-07-23): send a
-   warning email and a deactivation-notification email to affected end
-   users, via an SMTP relay. Classification (`inactivity_logic.py`,
-   `user_source.py`), the relay (`email_relay.py`), and the wiring
-   between them (`email_notification_report.py`) all exist now.
-   **Rollout confirmed by PMO/IT (2026-08-12, see `ROLLOUT.md`):** live
-   sending is gated by two independent flags —
+2. **End-user emails:** send a warning email and a
+   deactivation-notification email to affected end users, via an SMTP
+   relay. Classification (`inactivity_logic.py`, `user_source.py`),
+   the relay (`email_relay.py`), and the wiring between them
+   (`email_notification_report.py`) all exist and are fully approved.
+   Live sending is gated by two independent flags —
    `config.WARNING_DELIVERY_ENABLED` and
    `config.DEACTIVATE_DELIVERY_ENABLED`, both still `False` — so
-   warning emails can go live first (Phase 2) while deactivation-notice
-   emails stay dry-run until Phase 3. See `CONTEXT.md`
-   "Wiring: email_notification_report.py".
+   warning emails can go live first, while deactivation-notice emails
+   stay dry-run until warnings are vetted. See "Picking this back up"
+   below for the confirmed rollout order.
 
 **Start here:**
-- [`CONTEXT.md`](CONTEXT.md) — full design doc and decisions made,
-  including what's superseded and why.
-- [`TODO.md`](TODO.md) — the **only** place unanswered questions and
-  pending implementation work are tracked. Check it before assuming
-  anything is still blocked or still unimplemented.
-- [`ROLLOUT.md`](ROLLOUT.md) — the phased rollout plan (dry-run → live
-  warnings → live deactivation-notices), **confirmed by PMO/IT
-  2026-08-12**. The two-flag split it called for is now built; flipping
-  `WARNING_DELIVERY_ENABLED` to `True` to actually enter Phase 2 is
-  still a separate, explicit step (see "Picking this back up" below).
+- [`CONTEXT.md`](CONTEXT.md) — the design doc: how each pipeline
+  works and why the key constraints exist.
 
 ## Layout
 
@@ -44,7 +35,7 @@ already-existing system owns deactivation end to end. It has two jobs:
 | `email_relay.py` | SMTP relay + email content: `send_email`/`send_warning_email`/`send_deactivation_notice_email`, `build_warning_body`/`build_deactivation_notice_body` (greeting by `display_name`, last logon date, deadline date, domain via `DOMAIN_DISPLAY_NAMES`), plus `build_summary_body`/`send_summary_email` for the per-run admin summary. |
 | `email_notification_report.py` | Entry point wiring classification to the relay (`classify_all()` + `dispatch()`), including per-account `deadline_date`/`display_name`. Warning and deactivation-notice outcomes are gated independently by `config.WARNING_DELIVERY_ENABLED`/`config.DEACTIVATE_DELIVERY_ENABLED` (both default `False`) — currently dry-run only. `main()` also runs the circuit-breaker check before dispatching, and always sends a counts-only admin summary to `config.ADMIN_SUMMARY_RECIPIENTS`. |
 | `circuit_breaker.py` | Pure fraction check (`check()`/`raise_if_tripped()`) shared by both entry points' `main()` — aborts a run if an implausibly large fraction of accounts are flagged (`config.CIRCUIT_BREAKER_MAX_FRACTION`/`CIRCUIT_BREAKER_MIN_SAMPLE_SIZE`), instead of writing a suspicious report or sending a wave of emails. Both `main()`s also email a trip notification to `config.ADMIN_SUMMARY_RECIPIENTS` via `email_relay.send_circuit_breaker_trip_email()`. |
-| `tests/` | Unit tests (`test_snapshot_diff.py`, `test_snapshot_source.py`, `test_deactivation_report.py`, `test_email_relay.py`, `test_inactivity_logic.py`, `test_user_source.py`, `test_email_notification_report.py`, `test_circuit_breaker.py`, 73 tests). |
+| `tests/` | Unit tests (`test_snapshot_diff.py`, `test_snapshot_source.py`, `test_deactivation_report.py`, `test_email_relay.py`, `test_inactivity_logic.py`, `test_user_source.py`, `test_email_notification_report.py`, `test_circuit_breaker.py`, 74 tests). |
 
 `dry_run_report.py` (the old single-CSV entry point that tied
 classification, reporting, and audit-logging together in one script)
@@ -95,22 +86,43 @@ print(email_relay.build_warning_body(datetime(2026,1,10,tzinfo=timezone.utc), da
 ```
 
 Flipping either flag to `True` is a separate, explicit decision from
-wiring the pieces together. Every other prerequisite is resolved (see
-`TODO.md`), and the phased rollout plan in `ROLLOUT.md` is now
-confirmed by PMO/IT (2026-08-12) — Phase 2 is warnings only
-(`WARNING_DELIVERY_ENABLED=True`, `DEACTIVATE_DELIVERY_ENABLED`
-stays `False`); Phase 3 flips the second flag once Phase 2 is vetted.
+wiring the pieces together. Every prerequisite (email copy, domain
+mapping, thresholds, admin recipients) is resolved — see "Picking
+this back up" below for the confirmed rollout order.
 
 ## Picking this back up
 
-1. Read `ROLLOUT.md` — the rollout order is confirmed and the flag
-   split it called for is built. Its "Quick reference: flag state per
-   phase" table shows exactly which of `WARNING_DELIVERY_ENABLED` /
-   `DEACTIVATE_DELIVERY_ENABLED` should be `True`/`False` for each
-   phase, and how to check which phase is currently live, advance to
-   the next one, or roll back — both flags are hardcoded booleans in
-   `config.py` (not env vars), so changing phase means editing that
-   file and redeploying, not flipping a runtime setting.
-2. Don't flip either flag ahead of its phase's "Owner sign-off" line
-   in `ROLLOUT.md`, regardless of how complete the wiring and content
-   look.
+Both flags are plain Python booleans hardcoded in `config.py` (not env
+vars) — changing stage means editing that file and redeploying, not
+flipping a runtime setting, so who-changed-what-when shows up in
+version history. To check which stage is currently live, read those
+two lines in `config.py` directly, or run:
+
+```
+python -c "import config; print(config.WARNING_DELIVERY_ENABLED, config.DEACTIVATE_DELIVERY_ENABLED)"
+```
+
+Confirmed rollout order (PMO/IT):
+
+| Stage | `WARNING_DELIVERY_ENABLED` | `DEACTIVATE_DELIVERY_ENABLED` |
+|---|---|---|
+| Dry run | `False` | `False` |
+| Live warnings only | `True` | `False` |
+| Fully live | `True` | `True` |
+
+1. Pre-flight before the dry run: re-check `config.CIRCUIT_BREAKER_MAX_FRACTION`/
+   `MIN_SAMPLE_SIZE` still make sense against the current account
+   population, and confirm the admin summary + circuit-breaker-trip
+   emails land correctly at `config.ADMIN_SUMMARY_RECIPIENTS`.
+2. Run dry — both flags `False` — long enough to confirm the weekly
+   warned/notified/missing-email counts look plausible and stable,
+   with no circuit-breaker trips.
+3. Flip `WARNING_DELIVERY_ENABLED = True` only once warning-email
+   sending is explicitly signed off; leave
+   `DEACTIVATE_DELIVERY_ENABLED = False` until those warnings have
+   been vetted with real recipients.
+4. Flip `DEACTIVATE_DELIVERY_ENABLED = True` once deactivation-notice
+   sending is separately signed off. To roll back a stage, flip the
+   relevant flag back to `False` and redeploy — no other cleanup is
+   needed (no per-user state is ever persisted, per the GDPR
+   constraints in `CONTEXT.md`).

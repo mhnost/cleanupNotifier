@@ -12,11 +12,13 @@ owned end-to-end by a separate, already-existing system:
 ## Current State
 Both pipelines are fully built and tested. The diff pipeline runs live
 and unblocked. The email pipeline is fully wired and its SMTP relay is
-live-verified. The phased rollout plan in [`ROLLOUT.md`](ROLLOUT.md) is
-**confirmed by PMO/IT (2026-08-12)**: warnings go live first
-(`config.WARNING_DELIVERY_ENABLED`), deactivation-notices stay dry-run
-until Phase 3 (`config.DEACTIVATE_DELIVERY_ENABLED`) — both still
-`False` pending the Phase 0/1/2 sign-offs described there.
+live-verified; email copy, domain-name mapping, and delivery policy
+are all approved. Live sending is gated by two independent flags,
+`config.WARNING_DELIVERY_ENABLED` and
+`config.DEACTIVATE_DELIVERY_ENABLED` (both still `False`) — warnings
+go live first, deactivation-notices later, per a staged rollout
+confirmed by PMO/IT. See README.md "Picking this back up" for how to
+advance or roll back a stage.
 
 ## Deactivation Tracking (Diff Pipeline)
 - **Inputs:** two CSVs, same schema (`created`, `disabled`,
@@ -116,7 +118,8 @@ deactivation event. A trip also emails
   between runs.
 
 ## What's Left
-The rollout plan is confirmed and the flag split is built — what's
-left is executing it: Phase 0 pre-flight, Phase 1 dry-run weeks, then
-the Phase-2 sign-off to flip `config.WARNING_DELIVERY_ENABLED = True`.
-See [`ROLLOUT.md`](ROLLOUT.md).
+Every design question is resolved. What remains is executing the
+confirmed staged rollout: a pre-flight check, a dry-run period, then
+flipping `config.WARNING_DELIVERY_ENABLED = True` once warnings are
+signed off, and `config.DEACTIVATE_DELIVERY_ENABLED = True` once
+those are vetted too. See README.md "Picking this back up".

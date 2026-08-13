@@ -1,7 +1,7 @@
 """
 Circuit-breaker check shared by the diff pipeline
 (deactivation_report.py) and the email pipeline
-(email_notification_report.py) -- see TODO.md item 8.
+(email_notification_report.py).
 
 Guards against an implausibly large fraction of accounts being flagged
 in a single run (e.g. a bad CSV dump misclassifying most accounts as

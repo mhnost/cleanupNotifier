@@ -8,8 +8,6 @@ service account is also marked domain_admin (the reverse isn't true --
 not every admin is a service account -- but since both groups are
 excluded identically, domain_admin alone is a sufficient exclusion
 signal for both).
-
-See TODO.md for the current list of unanswered questions and pending work.
 """
 
 import os
@@ -86,11 +84,11 @@ def require_current_snapshot_path() -> None:
         )
 
 
-# --- SMTP relay (scope reverted 2026-07-23: end-user warning and
-# deactivation-notification emails are back in scope, see CONTEXT.md).
-# email_relay.py is wired into email_notification_report.py, but email
-# delivery remains on hold until explicitly turned on -- see
-# EMAIL_DELIVERY_ENABLED below and TODO.md. ---
+# --- SMTP relay (end-user warning and deactivation-notification
+# emails, see CONTEXT.md). email_relay.py is wired into
+# email_notification_report.py, but email delivery remains on hold
+# until explicitly turned on -- see WARNING_DELIVERY_ENABLED /
+# DEACTIVATE_DELIVERY_ENABLED below. ---
 SMTP_RELAY_HOST = os.environ.get("SMTP_RELAY_HOST")
 SMTP_RELAY_PORT = int(os.environ.get("SMTP_RELAY_PORT", "587"))
 SMTP_USE_TLS = os.environ.get("SMTP_USE_TLS", "true").strip().lower() in ("true", "1", "yes")
@@ -112,17 +110,15 @@ def require_smtp_config() -> None:
 # --- Email delivery gates (see email_notification_report.py). Wiring
 # classification to the relay is not the same thing as authorizing live
 # sends -- email delivery is on hold as an explicit, independent
-# decision (see TODO.md and ROLLOUT.md). Split into two flags (PMO/IT,
-# 2026-08-12) so warning emails can go live in Phase 2 of the rollout
-# while deactivation-notice emails stay dry-run until Phase 3 -- see
-# ROLLOUT.md for the phase definitions and sign-off owners. Leave both
-# False until each phase is explicitly approved; while a flag is False,
-# the pipeline reports what it *would* send for that outcome instead of
-# sending. ---
+# decision. Split into two flags (PMO/IT, 2026-08-12) so warning emails
+# can go live independently of deactivation-notice emails, per the
+# confirmed staged rollout. Leave both False until each stage is
+# explicitly approved; while a flag is False, the pipeline reports what
+# it *would* send for that outcome instead of sending. ---
 WARNING_DELIVERY_ENABLED = False
 DEACTIVATE_DELIVERY_ENABLED = False
 
-# --- Circuit breaker (TODO.md item 8): guards both the diff pipeline
+# --- Circuit breaker: guards both the diff pipeline
 # (deactivation_report.py) and the email pipeline
 # (email_notification_report.py) against an implausibly large fraction
 # of accounts being flagged in a single run -- e.g. a bad CSV dump
@@ -133,14 +129,14 @@ DEACTIVATE_DELIVERY_ENABLED = False
 # CIRCUIT_BREAKER_MIN_SAMPLE_SIZE keeps small runs (a handful of test/
 # staging accounts) from tripping on fraction alone -- the breaker only
 # makes sense once there's enough accounts for a fraction to be
-# meaningful. Both are placeholder defaults pending PMO confirmation of
-# the actual thresholds (see TODO.md); override via env var to tune
-# without a code change. ---
+# meaningful. Confirmed by PMO (2026-08-04) as the right numbers for
+# this org's account volume; override via env var to tune without a
+# code change. ---
 CIRCUIT_BREAKER_MAX_FRACTION = float(os.environ.get("CIRCUIT_BREAKER_MAX_FRACTION", "0.5"))
 CIRCUIT_BREAKER_MIN_SAMPLE_SIZE = int(os.environ.get("CIRCUIT_BREAKER_MIN_SAMPLE_SIZE", "20"))
 
-# --- Admin run-summary recipients (TODO.md item 9, confirmed by PMO
-# 2026-08-07): a short summary of each email-notification run (counts:
+# --- Admin run-summary recipients (confirmed by PMO 2026-08-07): a
+# short summary of each email-notification run (counts:
 # would-send/sent, missing-email, circuit-breaker-tripped) goes to these
 # addresses after every run, regardless of EMAIL_DELIVERY_ENABLED -- the
 # summary itself never contains per-user PII beyond counts, and is

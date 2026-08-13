@@ -8,8 +8,8 @@ accounts (username + timestamp only, no other user attributes).
 Requires the PREVIOUS_USER_SOURCE_CSV_PATH and CURRENT_USER_SOURCE_CSV_PATH
 environment variables (see config.py).
 
-main() also runs the shared circuit-breaker check (TODO.md item 8,
-see circuit_breaker.py) before writing the report -- an implausibly
+main() also runs the shared circuit-breaker check (see
+circuit_breaker.py) before writing the report -- an implausibly
 large fraction of newly-deactivated accounts likely means a bad
 snapshot, not a real mass-deactivation event.
 """

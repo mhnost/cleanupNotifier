@@ -78,7 +78,7 @@ def fetch_raw_user_records() -> Iterator[dict]:
     email; it's already deactivated.
 
     One malformed row (e.g. an unparseable last_logon/created date)
-    must not crash the whole run (TODO.md item 8): a bad row is skipped
+    must not crash the whole run: a bad row is skipped
     and logged with its line number and username (if readable) instead
     of raising out of this generator and losing every account after it.
     """

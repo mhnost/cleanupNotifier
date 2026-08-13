@@ -89,7 +89,7 @@ def test_main_aborts_without_writing_report_when_circuit_breaker_trips(tmp_path,
         pass
 
     assert not report_path.exists()
-    # The trip must still be routed to the admin recipients (TODO.md item 12).
+    # The trip must still be routed to the admin recipients.
     assert trip_calls == [
         (["onost@eg.no", "nishh@eg.dk"], trip_calls[0][1]),
     ]

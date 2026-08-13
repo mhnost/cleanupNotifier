@@ -1,22 +1,18 @@
 """
 Entry point wiring per-user classification (inactivity_logic.py,
-user_source.py) to the SMTP relay (email_relay.py) -- see CONTEXT.md
-"Per-User Email Classification" and "SMTP Relay (Sketch)".
+user_source.py) to the SMTP relay (email_relay.py) -- see CONTEXT.md.
 
 config.WARNING_DELIVERY_ENABLED and config.DEACTIVATE_DELIVERY_ENABLED
-gate the two outcomes independently (PMO/IT, 2026-08-12 -- see
-ROLLOUT.md), so warning emails can go live in Phase 2 of the rollout
-while deactivation-notice emails stay dry-run until Phase 3. Both
-default False: classify_all() classifies every account regardless, and
-dispatch() reports what it *would* send for whichever outcome's flag
-is still off, without ever calling email_relay for that outcome --
-mirroring this project's established dry-run-first pattern (see the
-deleted dry_run_report.py's history in CONTEXT.md). Flipping either
-flag to True is a separate, explicit per-phase decision (see
-ROLLOUT.md) from wiring the pieces together.
+gate the two outcomes independently (PMO/IT, 2026-08-12), so warning
+emails can go live independently of deactivation-notice emails per the
+confirmed staged rollout. Both default False: classify_all()
+classifies every account regardless, and dispatch() reports what it
+*would* send for whichever outcome's flag is still off, without ever
+calling email_relay for that outcome. Flipping either flag to True is
+a separate, explicit decision from wiring the pieces together.
 
-Also not yet resolved here (see TODO.md): rate limits/bounce handling
-aren't addressed. The missing-email case IS handled below: accounts
+Rate limits/bounce handling are deliberately out of scope (confirmed
+by PO, 2026-08-13). The missing-email case IS handled below: accounts
 with WARNING/DEACTIVATE outcomes but no email on file have their
 notification skipped (PMO, 2026-08-07) rather than guessing an
 address -- but still reported (not silently dropped) so it's visible
@@ -79,7 +75,7 @@ def dispatch(rows: list[dict]) -> tuple[list[dict], list[str]]:
     """Route WARNING/DEACTIVATE outcomes to the relay.
 
     Each outcome is gated by its own flag (config.WARNING_DELIVERY_ENABLED
-    / config.DEACTIVATE_DELIVERY_ENABLED, see ROLLOUT.md) -- a run can
+    / config.DEACTIVATE_DELIVERY_ENABLED) -- a run can
     have warnings live while deactivation-notices are still dry-run, or
     vice versa. Returns (dispatched, missing_email) where `dispatched`
     entries have an "action" of "sent" (that outcome's flag is True) or

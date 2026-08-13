@@ -9,7 +9,7 @@ snapshot_diff.find_newly_deactivated() is what compares the two.
 Disabled accounts are NOT filtered out here -- disabled status is
 exactly what this pipeline needs on both sides of the diff.
 
-One malformed row must not crash the whole run (TODO.md item 8): a bad
+One malformed row must not crash the whole run: a bad
 row is skipped and logged with its line number and username (if
 readable) instead of raising out of read_snapshot() and losing the
 rest of the dump.

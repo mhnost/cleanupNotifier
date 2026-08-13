@@ -137,7 +137,7 @@ def test_main_aborts_without_dispatching_when_circuit_breaker_trips(tmp_path, mo
     # 15/20 (75%) flagged is above threshold -- must abort before dispatch
     # ever calls the relay, live-send config notwithstanding.
     assert send_calls == []
-    # The trip must still be routed to the admin recipients (TODO.md item 12).
+    # The trip must still be routed to the admin recipients.
     assert trip_calls == [(["onost@eg.no", "nishh@eg.dk"], trip_calls[0][1])]
     assert "email-notification pipeline" in trip_calls[0][1]
 
@@ -173,8 +173,7 @@ def test_dispatch_calls_relay_when_delivery_enabled(monkeypatch):
 
 
 def test_dispatch_sends_warnings_live_while_deactivate_notices_stay_dry_run(monkeypatch):
-    # This is the Phase 2 rollout scenario (ROLLOUT.md): warnings go
-    # live while deactivation-notices stay would-send-only.
+    # Warnings go live while deactivation-notices stay would-send-only.
     monkeypatch.setattr(config, "WARNING_DELIVERY_ENABLED", True)
     monkeypatch.setattr(config, "DEACTIVATE_DELIVERY_ENABLED", False)
     warning_calls = []
