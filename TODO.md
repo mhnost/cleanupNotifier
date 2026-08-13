@@ -50,6 +50,15 @@ domain-name source is still an open question (Open Question 2 below).
 with PO in a dedicated meeting; each item below is now marked
 resolved inline. Only items 6–12 remain open.
 
+**2026-08-13 — items 6, 8–12 cleared; item 7 is the sole remaining
+blocker for handover.** Duplicate-send policy (6), deactivation-timing
+coordination with the other system (8), admin DL address (9),
+email-pipeline cadence (10), single-combined-job pipeline relationship
+(11), and circuit-breaker trip notification routing (12) are all
+confirmed. Only item 7 — actually executing Phase 0/1 of `ROLLOUT.md`
+and getting Phase-2 sign-off — remains, and is deliberately deferred
+to just before handover rather than done now.
+
 ## Open Questions (need an answer from the team / IT / CloudOps / DPO)
 
 **2026-07-29 — strawman proposals drafted for the 2026-07-30 meeting.**
@@ -94,56 +103,39 @@ system's owner has the real answer) rather than defaults to bless.
    accounts with an actionable outcome but no email on file to a
    separate `missing_email` list for manual review, rather than silent
    skip or silent deactivate-with-no-notice — is confirmed as-is.
-6. **Duplicate-send-on-rerun** — low-severity previously, but worth
-   reconfirming now that live sending is back in scope.
-   **Proposed:** treat repeat warning emails across consecutive weekly
-   runs (while an account sits in the 180–186 day window) as intended
-   reminder behavior, not a bug — a send-once guarantee would need
-   persistent per-user state, which conflicts with the project's
-   no-storage GDPR stance. Explicitly accept "up to ~7 warning emails"
-   as expected.
-7. **Approval gate for the staged rollout — resolved (PMO/IT, 2026-08-12).**
-   Rollout order confirmed as drafted in `ROLLOUT.md`: dry-run → live
-   warnings only → live deactivation-notices, with per-phase sign-off.
-   The `WARNING_DELIVERY_ENABLED`/`DEACTIVATE_DELIVERY_ENABLED` flag
-   split it required is now built (`config.py`,
-   `email_notification_report.py`). Still open: actually executing
-   Phase 0/1 and getting the Phase-2 sign-off to flip
-   `WARNING_DELIVERY_ENABLED` to `True` — see `ROLLOUT.md`.
-8. **Timing coordination with the separate deactivation system** — now
-   relevant again: does its actual deactivation timing align with this
-   agent's day-187 deactivation-notice point? A mismatch means the
-   notice could arrive well before or after the account is disabled.
-   **Proposed:** no default to strawman — only the other system's owner
-   knows its actual trigger point. Procedural ask: confirm directly
-   whether it's day-187-since-last-logon or something else, and adjust
-   `config.DEACTIVATE_MIN_DAYS` to match if not.
-9. **Admin distribution list address**, if a weekly summary report of
-   sent emails is still wanted (previously agreed; unclear if still
-   applies under the reverted scope).
-   **Proposed:** yes, keep it — a short weekly summary (counts: warned /
-   notified / missing-email / circuit-breaker-tripped) to an IT DL,
-   reusing the existing relay. Ask who the right DL is.
-10. **Cadence for the email pipeline** — confirmed weekly for the
-    diff/count pipeline; not yet explicitly reconfirmed for the
-    (reverted) email pipeline, though likely the same weekly job.
-    **Proposed:** same weekly cadence as the diff pipeline, tied to the
-    same CSV refresh.
-11. **Relationship between the two pipelines** — do the diff/count
-    pipeline (`deactivation_report.py`) and the new email pipeline run
-    as one combined weekly job, or two separate ones? Does the email
-    pipeline need the same previous/current CSV inputs, or its own?
-    **Proposed:** combine into one weekly job — run the diff first,
-    then classification+dispatch against the same current-snapshot CSV
-    (the previous snapshot is only needed for the diff step). Simpler
-    ops than two separately-scheduled jobs.
-12. **Circuit-breaker notification routing** — the breaker itself is
-    built (item 8 above) and its threshold values are confirmed (see
-    "Resolved" below). Still open: who gets notified when a run aborts
-    (currently: stderr only, no admin-DL email — same open question as
-    item 9).
-    **Proposed:** route a trip notification into the same admin-DL
-    summary proposed in item 9 rather than stderr-only.
+6. **Duplicate-send-on-rerun — accepted (PO, 2026-08-13).** Repeat
+   warning emails across consecutive weekly runs (while an account
+   sits in the 180–186 day window, up to ~7 sends) are intended
+   reminder behavior, not a bug — no send-once guarantee needed.
+7. **Approval gate for the staged rollout — resolved (PMO/IT, 2026-08-12);
+   execution timing confirmed (PO, 2026-08-13).** Rollout order
+   confirmed as drafted in `ROLLOUT.md`: dry-run → live warnings only
+   → live deactivation-notices, with per-phase sign-off. The
+   `WARNING_DELIVERY_ENABLED`/`DEACTIVATE_DELIVERY_ENABLED` flag split
+   it required is built (`config.py`, `email_notification_report.py`).
+   **The last thing to do before handover:** actually execute Phase
+   0/1 and get the Phase-2 sign-off to flip `WARNING_DELIVERY_ENABLED`
+   to `True` — see `ROLLOUT.md`. Deliberately left until just before
+   handover rather than done now.
+8. **Timing coordination with the separate deactivation system —
+   confirmed (2026-08-13).** Its deactivation timing aligns with this
+   agent's day-187 deactivation-notice point; `config.DEACTIVATE_MIN_DAYS`
+   needs no change.
+9. **Admin distribution list address — confirmed.** The two recipients
+   already smoke-tested in `ROLLOUT.md` Phase 0 (onost@eg.no,
+   nishh@eg.dk) are correct for the weekly summary (counts: warned /
+   notified / missing-email / circuit-breaker-tripped).
+10. **Cadence for the email pipeline — confirmed.** Same weekly cadence
+    as the diff/count pipeline, tied to the same CSV refresh.
+11. **Relationship between the two pipelines — confirmed: one combined
+    weekly job.** The diff/count pipeline (`deactivation_report.py`)
+    and the email pipeline run as a single job — diff first, then
+    classification+dispatch against the same current-snapshot CSV (the
+    previous snapshot is only needed for the diff step).
+12. **Circuit-breaker notification routing — confirmed: same recipients
+    as the summary email.** A trip notification routes to the same two
+    admin-DL addresses confirmed in item 9 (onost@eg.no, nishh@eg.dk),
+    not stderr-only.
 
 ## TODOs (implementation)
 
