@@ -77,7 +77,7 @@ advance or roll back a stage.
 - **Admin run summary:** every run emails
   `config.ADMIN_SUMMARY_RECIPIENTS` (onost@eg.no, nishh@eg.dk) a
   counts-only summary (warned / notified / missing-email), regardless
-  of `EMAIL_DELIVERY_ENABLED`. Deliberately excludes usernames or other
+  of either delivery flag. Deliberately excludes usernames or other
   per-account PII — the summary's purpose only needs counts, and email
   is a less access-controlled, less retention-managed channel than the
   diff pipeline's report file.

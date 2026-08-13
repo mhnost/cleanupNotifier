@@ -138,7 +138,7 @@ CIRCUIT_BREAKER_MIN_SAMPLE_SIZE = int(os.environ.get("CIRCUIT_BREAKER_MIN_SAMPLE
 # --- Admin run-summary recipients (confirmed by PMO 2026-08-07): a
 # short summary of each email-notification run (counts:
 # would-send/sent, missing-email, circuit-breaker-tripped) goes to these
-# addresses after every run, regardless of EMAIL_DELIVERY_ENABLED -- the
+# addresses after every run, regardless of either delivery flag -- the
 # summary itself never contains per-user PII beyond counts, and is
 # useful during the dry-run phase too. Comma-separated env var, falling
 # back to the two addresses PMO named. ---
