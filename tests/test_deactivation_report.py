@@ -48,10 +48,10 @@ def test_run_finds_newly_deactivated_accounts(tmp_path, monkeypatch):
     assert deactivation_report.run() == ["alice"]
 
 
-def _user_row(username, disabled):
+def _user_row(username, disabled, domain="example.com"):
     return (
         f"2020-01-01T00:00:00+00:00,{disabled},User {username},CN={username},"
-        f"example.com,false,{username}@example.com,2026-01-01T00:00:00+00:00,"
+        f"{domain},false,{username}@example.com,2026-01-01T00:00:00+00:00,"
         f"2026-01-01T00:00:00+00:00,{username}\n"
     )
 
@@ -111,6 +111,51 @@ def test_main_writes_report_when_circuit_breaker_not_tripped(tmp_path, monkeypat
     deactivation_report.main()
 
     assert report_path.exists()
+
+
+def test_main_excludes_only_the_tripped_domain_when_another_domain_is_clean(tmp_path, monkeypatch):
+    # egrdrift: 15/20 (75%) newly disabled -- trips. kesko: 1/20 (5%) --
+    # stays clean. Per-domain policy (PMO, 2026-08-14) means kesko's
+    # account should still make it into the report even though egrdrift
+    # tripped.
+    bad_domain_users = [f"bad{i}" for i in range(20)]
+    good_domain_users = [f"good{i}" for i in range(20)]
+    previous_path = tmp_path / "previous.csv"
+    current_path = tmp_path / "current.csv"
+    previous_path.write_text(
+        CSV_HEADER
+        + "".join(_user_row(u, "false", domain="egrdrift") for u in bad_domain_users)
+        + "".join(_user_row(u, "false", domain="kesko") for u in good_domain_users),
+        encoding="utf-8",
+    )
+    current_path.write_text(
+        CSV_HEADER
+        + "".join(_user_row(u, "true", domain="egrdrift") for u in bad_domain_users[:15])
+        + "".join(_user_row(u, "false", domain="egrdrift") for u in bad_domain_users[15:])
+        + "".join(_user_row(u, "true", domain="kesko") for u in good_domain_users[:1])
+        + "".join(_user_row(u, "false", domain="kesko") for u in good_domain_users[1:]),
+        encoding="utf-8",
+    )
+    report_path = tmp_path / "report.csv"
+    monkeypatch.setattr(config, "PREVIOUS_USER_SOURCE_CSV_PATH", str(previous_path))
+    monkeypatch.setattr(config, "CURRENT_USER_SOURCE_CSV_PATH", str(current_path))
+    monkeypatch.setattr(config, "NEW_DEACTIVATIONS_REPORT_CSV_PATH", str(report_path))
+    monkeypatch.setattr(config, "ADMIN_SUMMARY_RECIPIENTS", ["onost@eg.no", "nishh@eg.dk"])
+    trip_calls = []
+    monkeypatch.setattr(
+        deactivation_report.email_relay,
+        "send_circuit_breaker_trip_email",
+        lambda recipients, body: trip_calls.append((recipients, body)),
+    )
+
+    deactivation_report.main()  # must not raise -- kesko's data still gets written
+
+    with open(report_path, newline="", encoding="utf-8") as f:
+        reported_usernames = {row["username"] for row in csv.DictReader(f)}
+    assert reported_usernames == {"good0"}
+    assert len(trip_calls) == 1
+    assert "egrdrift" in trip_calls[0][1]
+    assert "kesko" not in trip_calls[0][1]
 
 
 def test_write_report_writes_username_and_timestamp_only(tmp_path):

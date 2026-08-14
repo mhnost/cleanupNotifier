@@ -41,6 +41,7 @@ def read_snapshot(path: str) -> Iterator[SnapshotRecord]:
                     username=row.get(config.IDENTIFIER_FIELD),
                     disabled=_parse_bool(row.get(config.DISABLED_FIELD)),
                     domain_admin=_parse_bool(row.get(config.DOMAIN_ADMIN_FIELD)),
+                    domain=row.get(config.DOMAIN_FIELD) or "",
                 )
             except Exception as exc:
                 print(

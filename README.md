@@ -34,7 +34,7 @@ already-existing system owns deactivation end to end. It has two jobs:
 | `user_source.py` | Reads `config.CURRENT_USER_SOURCE_CSV_PATH` into `CandidateUser`s (`fetch_raw_user_records`, `to_candidate_user`) — `last_logon`/`created` fallback, `domain_admin` exclusion, `display_name`, plus `last_logon`/`reference_date` for the email drafts. Skips and logs any row that fails to parse rather than crashing the whole read. |
 | `email_relay.py` | SMTP relay + email content: `send_email`/`send_warning_email`/`send_deactivation_notice_email`, `build_warning_body`/`build_deactivation_notice_body` (greeting by `display_name`, last logon date, deadline date, domain via `DOMAIN_DISPLAY_NAMES`), plus `build_summary_body`/`send_summary_email` for the per-run admin summary. |
 | `email_notification_report.py` | Entry point wiring classification to the relay (`classify_all()` + `dispatch()`), including per-account `deadline_date`/`display_name`. Warning and deactivation-notice outcomes are gated independently by `config.WARNING_DELIVERY_ENABLED`/`config.DEACTIVATE_DELIVERY_ENABLED` (both default `False`) — currently dry-run only. `main()` also runs the circuit-breaker check before dispatching, and always sends a counts-only admin summary to `config.ADMIN_SUMMARY_RECIPIENTS`. |
-| `circuit_breaker.py` | Pure fraction check (`check()`/`raise_if_tripped()`) shared by both entry points' `main()` — aborts a run if an implausibly large fraction of accounts are flagged (`config.CIRCUIT_BREAKER_MAX_FRACTION`/`CIRCUIT_BREAKER_MIN_SAMPLE_SIZE`), instead of writing a suspicious report or sending a wave of emails. Both `main()`s also email a trip notification to `config.ADMIN_SUMMARY_RECIPIENTS` via `email_relay.send_circuit_breaker_trip_email()`. |
+| `circuit_breaker.py` | Pure fraction check (`check()`/`raise_if_tripped()`, plus `check_per_domain()`/`format_domain_trip_message()`) shared by both entry points' `main()` — evaluated **per domain** (PMO, 2026-08-14), so a domain with an implausibly large flagged fraction (`config.CIRCUIT_BREAKER_MAX_FRACTION`/`CIRCUIT_BREAKER_MIN_SAMPLE_SIZE`) is excluded from that run's report/dispatch instead of blocking every other domain. Both `main()`s email a trip notification to `config.ADMIN_SUMMARY_RECIPIENTS` via `email_relay.send_circuit_breaker_trip_email()` whenever any domain trips, and still abort entirely if every domain with candidates trips. |
 | `tests/` | Unit tests (`test_snapshot_diff.py`, `test_snapshot_source.py`, `test_deactivation_report.py`, `test_email_relay.py`, `test_inactivity_logic.py`, `test_user_source.py`, `test_email_notification_report.py`, `test_circuit_breaker.py`, 74 tests). |
 
 `dry_run_report.py` (the old single-CSV entry point that tied
@@ -112,8 +112,11 @@ Confirmed rollout order (PMO/IT):
 
 1. Pre-flight before the dry run: re-check `config.CIRCUIT_BREAKER_MAX_FRACTION`/
    `MIN_SAMPLE_SIZE` still make sense against the current account
-   population, and confirm the admin summary + circuit-breaker-trip
-   emails land correctly at `config.ADMIN_SUMMARY_RECIPIENTS`.
+   population **per domain** (the breaker is evaluated per domain, not
+   org-wide — PMO, 2026-08-14, since domains are inspected one at a
+   time across the org's 11 domains), and confirm the admin summary +
+   circuit-breaker-trip emails land correctly at
+   `config.ADMIN_SUMMARY_RECIPIENTS`.
 2. Run dry — both flags `False` — long enough to confirm the weekly
    warned/notified/missing-email counts look plausible and stable,
    with no circuit-breaker trips.

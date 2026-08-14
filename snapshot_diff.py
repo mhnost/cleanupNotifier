@@ -17,6 +17,7 @@ class SnapshotRecord:
     username: str
     disabled: bool
     domain_admin: bool
+    domain: str = ""
 
 
 def find_newly_deactivated(

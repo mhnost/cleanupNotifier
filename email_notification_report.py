@@ -59,6 +59,12 @@ def classify_all(now=None) -> list[dict]:
                 "reason": result.reason,
                 "last_logon": candidate.last_logon,
                 "deadline_date": deadline_date,
+                # Raw domain, used to group accounts for the per-domain
+                # circuit breaker (see main()) -- kept separate from the
+                # display-name version below since a raw domain always
+                # maps to exactly one display name, but grouping should
+                # stay tied to the source data, not its presentation.
+                "raw_domain": candidate.domain,
                 "domain": email_relay.resolve_domain_display_name(candidate.domain),
             }
         )
@@ -124,20 +130,46 @@ def dispatch(rows: list[dict]) -> tuple[list[dict], list[str]]:
 
 
 def main() -> None:
+    """Runs the circuit-breaker check per domain (PMO, 2026-08-14) rather
+    than once across every account -- domains are inspected one at a
+    time, so a bad snapshot for one domain shouldn't block dispatch for
+    every other domain. A domain that trips has its rows excluded from
+    dispatch this run and is reported via the admin trip email; domains
+    that don't trip dispatch normally. If every domain with rows trips
+    (so there's nothing left to dispatch), the run still aborts, same
+    as before this change.
+    """
     rows = classify_all()
-    actionable_count = sum(1 for row in rows if row["outcome"] in ACTIONABLE_OUTCOMES)
-    try:
-        circuit_breaker.raise_if_tripped(
-            flagged_count=actionable_count,
-            total_count=len(rows),
-            threshold=config.CIRCUIT_BREAKER_MAX_FRACTION,
-            min_sample_size=config.CIRCUIT_BREAKER_MIN_SAMPLE_SIZE,
-            label="email-notification pipeline",
+    rows_by_domain: dict[str, list[dict]] = {}
+    for row in rows:
+        rows_by_domain.setdefault(row["raw_domain"], []).append(row)
+
+    counts_by_domain = {
+        domain: (
+            sum(1 for row in domain_rows if row["outcome"] in ACTIONABLE_OUTCOMES),
+            len(domain_rows),
         )
-    except circuit_breaker.CircuitBreakerTripped as exc:
-        email_relay.send_circuit_breaker_trip_email(config.ADMIN_SUMMARY_RECIPIENTS, str(exc))
-        raise
-    dispatched, missing_email = dispatch(rows)
+        for domain, domain_rows in rows_by_domain.items()
+    }
+    results_by_domain = circuit_breaker.check_per_domain(
+        counts_by_domain,
+        threshold=config.CIRCUIT_BREAKER_MAX_FRACTION,
+        min_sample_size=config.CIRCUIT_BREAKER_MIN_SAMPLE_SIZE,
+    )
+    tripped = {domain: result for domain, result in results_by_domain.items() if result.tripped}
+
+    reportable_rows = [
+        row for domain, domain_rows in rows_by_domain.items() if domain not in tripped
+        for row in domain_rows
+    ]
+
+    if tripped:
+        message = circuit_breaker.format_domain_trip_message("email-notification pipeline", tripped)
+        email_relay.send_circuit_breaker_trip_email(config.ADMIN_SUMMARY_RECIPIENTS, message)
+        if not reportable_rows:
+            raise circuit_breaker.CircuitBreakerTripped(message)
+
+    dispatched, missing_email = dispatch(reportable_rows)
 
     warning_mode = "LIVE" if config.WARNING_DELIVERY_ENABLED else "DRY RUN"
     deactivate_mode = "LIVE" if config.DEACTIVATE_DELIVERY_ENABLED else "DRY RUN"
@@ -146,6 +178,12 @@ def main() -> None:
     print(f"[{now}] Email notification pipeline ({mode})", file=sys.stderr)
     for entry in dispatched:
         print(f"  {entry['action']}: {entry['username']} ({entry['outcome']})", file=sys.stderr)
+    if tripped:
+        print(
+            f"WARNING: circuit breaker tripped for {len(tripped)} domain(s), excluded "
+            f"from this run's dispatch: {', '.join(tripped)}",
+            file=sys.stderr,
+        )
     if missing_email:
         print(
             f"WARNING: {len(missing_email)} account(s) needed a warning/deactivation-"

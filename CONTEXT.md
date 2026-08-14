@@ -97,14 +97,21 @@ advance or roll back a stage.
   weekly cadence.
 
 ## Circuit Breaker (`circuit_breaker.py`)
-Shared by both pipelines' `main()`: aborts — raising
-`CircuitBreakerTripped`, writing/sending nothing else — if the
-flagged/total fraction exceeds `config.CIRCUIT_BREAKER_MAX_FRACTION`
-(50%) on a sample of at least `config.CIRCUIT_BREAKER_MIN_SAMPLE_SIZE`
-(20) accounts. Guards against a bad CSV dump being misread as a mass
-deactivation event. A trip also emails
+Shared by both pipelines' `main()`, checked **per domain** rather than
+once across the whole snapshot (PMO, 2026-08-14 — domains are
+inspected one at a time operationally, across 11 domains of roughly
+egrdrift's size, so one domain's bad snapshot shouldn't block every
+other domain's report/dispatch). For each domain, if its flagged/total
+fraction exceeds `config.CIRCUIT_BREAKER_MAX_FRACTION` (50%) on a
+sample of at least `config.CIRCUIT_BREAKER_MIN_SAMPLE_SIZE` (20)
+accounts, that domain's accounts are excluded from this run's
+report/dispatch and a trip notification is emailed to
 `config.ADMIN_SUMMARY_RECIPIENTS` via
-`email_relay.send_circuit_breaker_trip_email()`.
+`email_relay.send_circuit_breaker_trip_email()` — other domains still
+proceed normally. If every domain with candidates trips (nothing left
+to report/dispatch), the run still raises `CircuitBreakerTripped` and
+aborts entirely, same as the original whole-run behavior. Guards
+against a bad CSV dump being misread as a mass deactivation event.
 
 ## GDPR Constraints
 - No persistent storage of user data beyond a single run's processing:

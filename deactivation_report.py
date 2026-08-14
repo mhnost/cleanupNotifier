@@ -25,22 +25,16 @@ import snapshot_source
 from snapshot_diff import find_newly_deactivated
 
 
-def run() -> list[str]:
-    return _run_with_total_candidates()[0]
-
-
-def _run_with_total_candidates() -> tuple[list[str], int]:
-    """Same as run(), but also returns the total candidate account count
-    (current accounts excluding domain_admin) -- main() needs it for the
-    circuit-breaker fraction; run() stays a plain list for callers/tests
-    that only care about the newly-deactivated usernames.
-    """
+def _read_snapshots() -> tuple[list, list]:
     config.require_snapshot_paths()
     previous = list(snapshot_source.read_snapshot(config.PREVIOUS_USER_SOURCE_CSV_PATH))
     current = list(snapshot_source.read_snapshot(config.CURRENT_USER_SOURCE_CSV_PATH))
-    newly_deactivated = find_newly_deactivated(previous, current)
-    total_candidates = sum(1 for record in current if not record.domain_admin)
-    return newly_deactivated, total_candidates
+    return previous, current
+
+
+def run() -> list[str]:
+    previous, current = _read_snapshots()
+    return find_newly_deactivated(previous, current)
 
 
 def write_report(usernames: list[str], path: str) -> None:
@@ -53,20 +47,60 @@ def write_report(usernames: list[str], path: str) -> None:
 
 
 def main() -> None:
-    usernames, total_candidates = _run_with_total_candidates()
-    try:
-        circuit_breaker.raise_if_tripped(
-            flagged_count=len(usernames),
-            total_count=total_candidates,
-            threshold=config.CIRCUIT_BREAKER_MAX_FRACTION,
-            min_sample_size=config.CIRCUIT_BREAKER_MIN_SAMPLE_SIZE,
-            label="deactivation-diff pipeline",
+    """Runs the circuit-breaker check per domain (PMO, 2026-08-14) rather
+    than once for the whole snapshot -- domains are inspected one at a
+    time, so a bad snapshot for one domain shouldn't block every other
+    domain's report. A domain that trips is excluded from this run's
+    report and reported via the admin trip email; domains that don't
+    trip proceed normally. If every domain with candidates trips (so
+    there's nothing left to report), the run still aborts without
+    writing, same as before this change.
+    """
+    previous, current = _read_snapshots()
+    newly_deactivated_set = set(find_newly_deactivated(previous, current))
+
+    candidates_by_domain: dict[str, list] = {}
+    for record in current:
+        if record.domain_admin:
+            continue
+        candidates_by_domain.setdefault(record.domain, []).append(record)
+
+    counts_by_domain = {
+        domain: (
+            sum(1 for record in records if record.username in newly_deactivated_set),
+            len(records),
         )
-    except circuit_breaker.CircuitBreakerTripped as exc:
-        email_relay.send_circuit_breaker_trip_email(config.ADMIN_SUMMARY_RECIPIENTS, str(exc))
-        raise
+        for domain, records in candidates_by_domain.items()
+    }
+    results_by_domain = circuit_breaker.check_per_domain(
+        counts_by_domain,
+        threshold=config.CIRCUIT_BREAKER_MAX_FRACTION,
+        min_sample_size=config.CIRCUIT_BREAKER_MIN_SAMPLE_SIZE,
+    )
+    tripped = {domain: result for domain, result in results_by_domain.items() if result.tripped}
+
+    usernames = [
+        record.username
+        for domain, records in candidates_by_domain.items()
+        if domain not in tripped
+        for record in records
+        if record.username in newly_deactivated_set
+    ]
+
+    if tripped:
+        message = circuit_breaker.format_domain_trip_message("deactivation-diff pipeline", tripped)
+        email_relay.send_circuit_breaker_trip_email(config.ADMIN_SUMMARY_RECIPIENTS, message)
+        if not usernames:
+            raise circuit_breaker.CircuitBreakerTripped(message)
+
     write_report(usernames, config.NEW_DEACTIVATIONS_REPORT_CSV_PATH)
     print(f"{len(usernames)} newly-deactivated account(s) found.", file=sys.stderr)
+    if tripped:
+        print(
+            f"WARNING: circuit breaker tripped for {len(tripped)} domain(s), excluded "
+            f"from this run's report: {', '.join(tripped)}",
+            file=sys.stderr,
+        )
     print(f"Report written to {config.NEW_DEACTIVATIONS_REPORT_CSV_PATH}", file=sys.stderr)
 
 

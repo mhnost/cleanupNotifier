@@ -101,9 +101,9 @@ def test_dispatch_routes_missing_email_accounts_separately(monkeypatch):
     assert missing_email == ["erin"]
 
 
-def _account_row(username, last_logon_iso):
+def _account_row(username, last_logon_iso, domain="example.com"):
     return (
-        f"2020-01-01T00:00:00+00:00,false,User {username},CN={username},example.com,false,"
+        f"2020-01-01T00:00:00+00:00,false,User {username},CN={username},{domain},false,"
         f"{username}@example.com,{last_logon_iso},2020-01-01T00:00:00+00:00,{username}\n"
     )
 
@@ -140,6 +140,51 @@ def test_main_aborts_without_dispatching_when_circuit_breaker_trips(tmp_path, mo
     # The trip must still be routed to the admin recipients.
     assert trip_calls == [(["onost@eg.no", "nishh@eg.dk"], trip_calls[0][1])]
     assert "email-notification pipeline" in trip_calls[0][1]
+
+
+def test_main_dispatches_the_clean_domain_while_excluding_the_tripped_one(tmp_path, monkeypatch):
+    # egrdrift: 15/20 (75%) stale -- trips. kesko: 1/20 (5%) stale -- stays
+    # clean. Per-domain policy (PMO, 2026-08-14) means kesko's warning
+    # should still be dispatched even though egrdrift tripped.
+    rows = "".join(
+        _account_row(f"stale{i}", "2020-01-01T00:00:00+00:00", domain="egrdrift") for i in range(15)
+    )
+    rows += "".join(
+        _account_row(f"active{i}", "2026-07-25T00:00:00+00:00", domain="egrdrift") for i in range(5)
+    )
+    rows += _account_row("stale-kesko", "2020-01-01T00:00:00+00:00", domain="kesko")
+    rows += "".join(
+        _account_row(f"active-kesko{i}", "2026-07-25T00:00:00+00:00", domain="kesko")
+        for i in range(19)
+    )
+    csv_path = tmp_path / "current.csv"
+    csv_path.write_text(CSV_HEADER + rows, encoding="utf-8")
+    monkeypatch.setattr(config, "CURRENT_USER_SOURCE_CSV_PATH", str(csv_path))
+    monkeypatch.setattr(config, "WARNING_DELIVERY_ENABLED", True)
+    monkeypatch.setattr(config, "DEACTIVATE_DELIVERY_ENABLED", True)
+    monkeypatch.setattr(config, "ADMIN_SUMMARY_RECIPIENTS", ["onost@eg.no", "nishh@eg.dk"])
+    notice_calls = []
+    monkeypatch.setattr(
+        pipeline.email_relay,
+        "send_deactivation_notice_email",
+        lambda addr, **k: notice_calls.append(addr),
+    )
+    trip_calls = []
+    monkeypatch.setattr(
+        pipeline.email_relay,
+        "send_circuit_breaker_trip_email",
+        lambda recipients, body: trip_calls.append((recipients, body)),
+    )
+    monkeypatch.setattr(
+        pipeline.email_relay, "send_summary_email", lambda recipients, body: None
+    )
+
+    pipeline.main()  # must not raise -- kesko's stale account still gets dispatched
+
+    assert notice_calls == ["stale-kesko@example.com"]
+    assert len(trip_calls) == 1
+    assert "egrdrift" in trip_calls[0][1]
+    assert "kesko" not in trip_calls[0][1]
 
 
 def test_dispatch_calls_relay_when_delivery_enabled(monkeypatch):

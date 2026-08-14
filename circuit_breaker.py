@@ -74,3 +74,44 @@ def raise_if_tripped(
             "mass deactivation event."
         )
     return result
+
+
+def check_per_domain(
+    flagged_and_total_by_domain: dict,
+    threshold: float,
+    min_sample_size: int = 0,
+) -> dict:
+    """Same as check(), but scoped to each domain independently.
+
+    Domains are inspected one at a time (PMO, 2026-08-14), so one
+    domain's bad snapshot shouldn't abort every other domain's run the
+    way a single org-wide fraction check would. Keys are domain names;
+    values are (flagged_count, total_count) pairs in, CircuitBreakerResult
+    out.
+    """
+    return {
+        domain: check(flagged, total, threshold, min_sample_size=min_sample_size)
+        for domain, (flagged, total) in flagged_and_total_by_domain.items()
+    }
+
+
+def format_domain_trip_message(label: str, tripped_by_domain: dict) -> str:
+    """Build a single trip-notification message summarizing every domain
+    that tripped in a per-domain check (see check_per_domain()).
+
+    tripped_by_domain maps domain name -> CircuitBreakerResult, and is
+    expected to already be filtered down to the tripped ones.
+    """
+    details = "; ".join(
+        f"{domain}: {result.flagged_count}/{result.total_count} ({result.fraction:.1%})"
+        for domain, result in tripped_by_domain.items()
+    )
+    # All domains from a single check_per_domain() call share the same
+    # configured threshold, so any one result's .threshold describes it.
+    threshold = next(iter(tripped_by_domain.values())).threshold
+    return (
+        f"{label}: circuit breaker tripped for domain(s) {details} -- each "
+        f"exceeded its {threshold:.0%} circuit-breaker threshold. Accounts "
+        "in those domain(s) are excluded from this run; other domains "
+        "proceeded normally."
+    )

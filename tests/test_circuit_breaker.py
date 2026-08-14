@@ -62,3 +62,35 @@ def test_raise_if_tripped_returns_result_when_not_tripped():
         flagged_count=1, total_count=100, threshold=0.5, label="test pipeline"
     )
     assert result.tripped is False
+
+
+def test_check_per_domain_evaluates_each_domain_independently():
+    results = circuit_breaker.check_per_domain(
+        {
+            "egrdrift": (80, 100),  # 80% -- trips
+            "egrtest": (10, 100),  # 10% -- does not trip
+        },
+        threshold=0.5,
+    )
+    assert results["egrdrift"].tripped is True
+    assert results["egrtest"].tripped is False
+
+
+def test_check_per_domain_respects_min_sample_size_per_domain():
+    results = circuit_breaker.check_per_domain(
+        {"small-domain": (1, 1)},
+        threshold=0.5,
+        min_sample_size=20,
+    )
+    assert results["small-domain"].tripped is False
+
+
+def test_format_domain_trip_message_includes_every_tripped_domain_and_threshold():
+    tripped = circuit_breaker.check_per_domain(
+        {"egrdrift": (80, 100), "kesko": (60, 100)}, threshold=0.5
+    )
+    message = circuit_breaker.format_domain_trip_message("test pipeline", tripped)
+    assert "test pipeline" in message
+    assert "egrdrift: 80/100 (80.0%)" in message
+    assert "kesko: 60/100 (60.0%)" in message
+    assert "50%" in message
