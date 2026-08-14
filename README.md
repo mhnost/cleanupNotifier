@@ -35,7 +35,7 @@ already-existing system owns deactivation end to end. It has two jobs:
 | `email_relay.py` | SMTP relay + email content: `send_email`/`send_warning_email`/`send_deactivation_notice_email`, `build_warning_body`/`build_deactivation_notice_body` (greeting by `display_name`, last logon date, deadline date, domain via `DOMAIN_DISPLAY_NAMES`), plus `build_summary_body`/`send_summary_email` for the per-run admin summary. |
 | `email_notification_report.py` | Entry point wiring classification to the relay (`classify_all()` + `dispatch()`), including per-account `deadline_date`/`display_name`. Warning and deactivation-notice outcomes are gated independently by `config.WARNING_DELIVERY_ENABLED`/`config.DEACTIVATE_DELIVERY_ENABLED` (both default `False`) — currently dry-run only. `main()` also runs the circuit-breaker check before dispatching, and always sends a counts-only admin summary to `config.ADMIN_SUMMARY_RECIPIENTS`. |
 | `circuit_breaker.py` | Pure fraction check (`check()`/`raise_if_tripped()`, plus `check_per_domain()`/`format_domain_trip_message()`) shared by both entry points' `main()` — evaluated **per domain** (PMO, 2026-08-14), so a domain with an implausibly large flagged fraction (`config.CIRCUIT_BREAKER_MAX_FRACTION`/`CIRCUIT_BREAKER_MIN_SAMPLE_SIZE`) is excluded from that run's report/dispatch instead of blocking every other domain. Both `main()`s email a trip notification to `config.ADMIN_SUMMARY_RECIPIENTS` via `email_relay.send_circuit_breaker_trip_email()` whenever any domain trips, and still abort entirely if every domain with candidates trips. |
-| `tests/` | Unit tests (`test_snapshot_diff.py`, `test_snapshot_source.py`, `test_deactivation_report.py`, `test_email_relay.py`, `test_inactivity_logic.py`, `test_user_source.py`, `test_email_notification_report.py`, `test_circuit_breaker.py`, 74 tests). |
+| `tests/` | Unit tests (`test_snapshot_diff.py`, `test_snapshot_source.py`, `test_deactivation_report.py`, `test_email_relay.py`, `test_inactivity_logic.py`, `test_user_source.py`, `test_email_notification_report.py`, `test_circuit_breaker.py`, 79 tests). |
 
 `dry_run_report.py` (the old single-CSV entry point that tied
 classification, reporting, and audit-logging together in one script)
@@ -43,11 +43,22 @@ remains deleted — its role is now split between `deactivation_report.py`
 (deactivation tracking) and `email_notification_report.py`
 (classification + send, currently dry-run only).
 
-## Running (deactivation tracking)
+## Setup
 
 ```
 pip install -r requirements.txt
-pytest                     # run the test suite
+pytest                     # run the test suite -- should show 79 passed
+cp .env.example .env       # then fill in the real SMTP relay values
+```
+
+`.env` is gitignored and never committed — it's the only place SMTP
+credentials live (loaded via `python-dotenv`, see `config.py`). Only
+needed once a delivery flag is `True`; the deactivation-tracking
+pipeline below doesn't touch SMTP at all.
+
+## Running (deactivation tracking)
+
+```
 export PREVIOUS_USER_SOURCE_CSV_PATH=/path/to/previous.csv   # (or `set` on Windows cmd)
 export CURRENT_USER_SOURCE_CSV_PATH=/path/to/current.csv
 python deactivation_report.py
@@ -129,3 +140,27 @@ Confirmed rollout order (PMO/IT):
    relevant flag back to `False` and redeploy — no other cleanup is
    needed (no per-user state is ever persisted, per the GDPR
    constraints in `CONTEXT.md`).
+
+## Scheduling weekly runs
+
+Nothing in this repo triggers a run automatically — no scheduled task,
+cron job, or CI pipeline is set up yet. This is a required setup step,
+not something already wired up. On Windows, a Task Scheduler action
+per weekly run needs to:
+
+1. Deliver fresh `previous`/`current` AD CSV snapshots to wherever the
+   task will read them from (this agent never fetches or stores them
+   itself — that's a separate upstream responsibility).
+2. Set `PREVIOUS_USER_SOURCE_CSV_PATH`/`CURRENT_USER_SOURCE_CSV_PATH`
+   (and `NEW_DEACTIVATIONS_REPORT_CSV_PATH` if the default output
+   location isn't wanted) as environment variables for the task, then
+   run `python deactivation_report.py`.
+3. Set `CURRENT_USER_SOURCE_CSV_PATH` (SMTP config comes from `.env`,
+   not the task's environment) and run `python email_notification_report.py`.
+4. Alert on a non-zero exit code from either script — both raise
+   `CircuitBreakerTripped` on an abort, which should surface as a
+   failed task run, not a silent no-op.
+
+Both scripts are independent processes; running them back-to-back in a
+single action (or as two actions in one task) is fine — neither
+depends on the other's output.
