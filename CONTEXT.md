@@ -13,19 +13,20 @@ owned end-to-end by a separate, already-existing system:
 Both pipelines are fully built and tested. The diff pipeline runs live
 and unblocked. The email pipeline is fully wired and its SMTP relay is
 live-verified; email copy, domain-name mapping, and delivery policy
-are all approved. Live sending is gated by two independent flags,
+are all finalized. Live sending is gated by two independent flags,
 `config.WARNING_DELIVERY_ENABLED` and
 `config.DEACTIVATE_DELIVERY_ENABLED` (both still `False`) — warnings
-go live first, deactivation-notices later, per a staged rollout
-confirmed by PMO/IT. See README.md "Picking this back up" for how to
-advance or roll back a stage.
+go live first, deactivation-notices later, per a staged rollout. See
+README.md "Picking this back up" for how to advance or roll back a
+stage.
 
 ## Deactivation Tracking (Diff Pipeline)
 - **Inputs:** two CSVs, same schema (`created`, `disabled`,
   `display_name`, `dn`, `domain`, `domain_admin`, `email`,
-  `last_logon`, `password_last_set`, `username`) — a previous and
-  current snapshot, delivered fresh together every run. Neither is
-  stored between runs (see "GDPR Constraints" below).
+  `last_logon`, `password_last_set`, `username`), exported from
+  Grafana — a previous and current snapshot, delivered fresh together
+  every run. Neither is stored between runs (see "GDPR Constraints"
+  below).
 - **Match key:** `username` (stable, unique across snapshots).
 - **"Newly deactivated":** present in both dumps with `disabled`
   transitioning `false` → `true`, excluding `domain_admin` accounts —
@@ -47,9 +48,9 @@ advance or roll back a stage.
   `days_since_reference` (last_logon, falling back to `created` if the
   account never logged in) against `WARNING_MIN_DAYS`=180,
   `WARNING_MAX_DAYS`=186, `DEACTIVATE_MIN_DAYS`=187 → outcome
-  `OK`/`WARNING`/`DEACTIVATE`/`EXCLUDED`/`REVIEW`. These thresholds are
-  confirmed aligned with the separate deactivation system's actual
-  trigger point.
+  `OK`/`WARNING`/`DEACTIVATE`/`EXCLUDED`/`REVIEW`. These thresholds
+  are aligned with the separate deactivation system's actual trigger
+  point.
 - **Source** (`user_source.py`): reads `config.CURRENT_USER_SOURCE_CSV_PATH`
   (the same file the diff pipeline uses for "current"), excludes
   `domain_admin` accounts, carries `display_name`, `last_logon`,
@@ -64,15 +65,14 @@ advance or roll back a stage.
   - Body states the last-logon date (or "no logon on record") and a
     concrete deadline date (`reference_date + DEACTIVATE_MIN_DAYS`
     days).
-  - Both structure and final wording are approved — no outstanding
-    copy review.
+  - Both structure and wording are finalized.
 - **Wiring** (`email_notification_report.py`): `classify_all()` +
   `dispatch()`. Accounts with an actionable outcome but no email on
   file have their notification skipped (not guessed at), but are still
   counted rather than silently dropped. Actual sending is gated
   per-outcome by `config.WARNING_DELIVERY_ENABLED` /
   `config.DEACTIVATE_DELIVERY_ENABLED` (both default `False`, split
-  2026-08-12 per the confirmed rollout plan) — while a flag is off,
+  2026-08-12 per the staged rollout plan) — while a flag is off,
   `dispatch()` only records `"would_send"` for that outcome.
 - **Admin run summary:** every run emails
   `config.ADMIN_SUMMARY_RECIPIENTS` (onost@eg.no, nishh@eg.dk) a
@@ -84,8 +84,8 @@ advance or roll back a stage.
 - **SMTP relay** (`email_relay.send_email`): `postal.egcloud.no`:25,
   credential `egnorway/user-cleanup`, TLS off, From address
   `noreply@egcloud.no` — the relay allow-lists the From address per
-  service account (confirmed by CloudOps after two other addresses
-  were rejected). All values load from `ad_deactivation_agent/.env` via
+  service account (two other addresses were rejected by the relay).
+  All values load from `ad_deactivation_agent/.env` via
   `python-dotenv`. Live-verified with real smoke-test sends.
 - **Rate limits / bounces:** no throttling, backoff, or bounce-tracking
   in v1 — a deliberate simplification; "relay accepted" counts as
@@ -98,10 +98,10 @@ advance or roll back a stage.
 
 ## Circuit Breaker (`circuit_breaker.py`)
 Shared by both pipelines' `main()`, checked **per domain** rather than
-once across the whole snapshot (PMO, 2026-08-14 — domains are
-inspected one at a time operationally, across 11 domains of roughly
-egrdrift's size, so one domain's bad snapshot shouldn't block every
-other domain's report/dispatch). For each domain, if its flagged/total
+once across the whole snapshot (domains are inspected one at a time
+operationally, across 11 domains of roughly egrdrift's size, so one
+domain's bad snapshot shouldn't block every other domain's
+report/dispatch). For each domain, if its flagged/total
 fraction exceeds `config.CIRCUIT_BREAKER_MAX_FRACTION` (50%) on a
 sample of at least `config.CIRCUIT_BREAKER_MIN_SAMPLE_SIZE` (20)
 accounts, that domain's accounts are excluded from this run's
@@ -113,8 +113,8 @@ to report/dispatch), the run still raises `CircuitBreakerTripped` and
 aborts entirely, same as the original whole-run behavior. Guards
 against a bad CSV dump being misread as a mass deactivation event.
 
-**First-run mode** (PMO, 2026-08-14): real per-domain fractions
-checked the same day ranged ~1%–74% — 3 of the 11 domains (egrdrift,
+**First-run mode**: real per-domain fractions checked 2026-08-14
+ranged ~1%–74% — 3 of the 11 domains (egrdrift,
 egrtest, trygg2000) exceed the normal 50% threshold on the very first
 backlog-clearing run, which reflects genuine years-old backlog, not a
 bad snapshot. `config.circuit_breaker_threshold()` returns
@@ -137,7 +137,7 @@ stay elevated for a later, ordinary weekly run.
 
 ## What's Left
 Every design question is resolved. What remains is executing the
-confirmed staged rollout: a pre-flight check, a dry-run period, then
-flipping `config.WARNING_DELIVERY_ENABLED = True` once warnings are
-signed off, and `config.DEACTIVATE_DELIVERY_ENABLED = True` once
-those are vetted too. See README.md "Picking this back up".
+staged rollout: a pre-flight check, a dry-run period, then flipping
+`config.WARNING_DELIVERY_ENABLED = True` once warnings are ready to
+go live, and `config.DEACTIVATE_DELIVERY_ENABLED = True` once
+deactivation-notices are too. See README.md "Picking this back up".

@@ -10,13 +10,13 @@ already-existing system owns deactivation end to end. It has two jobs:
    deactivation-notification email to affected end users, via an SMTP
    relay. Classification (`inactivity_logic.py`, `user_source.py`),
    the relay (`email_relay.py`), and the wiring between them
-   (`email_notification_report.py`) all exist and are fully approved.
+   (`email_notification_report.py`) all exist and are complete.
    Live sending is gated by two independent flags —
    `config.WARNING_DELIVERY_ENABLED` and
    `config.DEACTIVATE_DELIVERY_ENABLED`, both still `False` — so
    warning emails can go live first, while deactivation-notice emails
-   stay dry-run until warnings are vetted. See "Picking this back up"
-   below for the confirmed rollout order.
+   stay dry-run until warnings are reviewed. See "Picking this back up"
+   below for the rollout order.
 
 **Start here:**
 - [`CONTEXT.md`](CONTEXT.md) — the design doc: how each pipeline
@@ -30,11 +30,11 @@ already-existing system owns deactivation end to end. It has two jobs:
 | `snapshot_diff.py` | Pure diff logic (`find_newly_deactivated`) — decides which accounts count as newly deactivated. No I/O; the most heavily tested piece. |
 | `snapshot_source.py` | Reads one AD CSV dump into `SnapshotRecord`s (`read_snapshot()`), keeping disabled accounts (needed for the diff). Skips and logs any row that fails to parse rather than crashing the whole read. |
 | `deactivation_report.py` | Entry point for deactivation tracking. Reads the previous + current CSV dumps, diffs them, writes `new_deactivations_report.csv` (username + timestamp only). `main()` runs the circuit-breaker check before writing. |
-| `inactivity_logic.py` | Pure per-user classification logic (`classify_account`) — decides `ok`/`warning`/`deactivate`/`excluded`/`review` from days-since-last-activity. 180/187-day thresholds confirmed apt. |
+| `inactivity_logic.py` | Pure per-user classification logic (`classify_account`) — decides `ok`/`warning`/`deactivate`/`excluded`/`review` from days-since-last-activity. 180/187-day thresholds. |
 | `user_source.py` | Reads `config.CURRENT_USER_SOURCE_CSV_PATH` into `CandidateUser`s (`fetch_raw_user_records`, `to_candidate_user`) — `last_logon`/`created` fallback, `domain_admin` exclusion, `display_name`, plus `last_logon`/`reference_date` for the email drafts. Skips and logs any row that fails to parse rather than crashing the whole read. |
 | `email_relay.py` | SMTP relay + email content: `send_email`/`send_warning_email`/`send_deactivation_notice_email`, `build_warning_body`/`build_deactivation_notice_body` (greeting by `display_name`, last logon date, deadline date, domain via `DOMAIN_DISPLAY_NAMES`), plus `build_summary_body`/`send_summary_email` for the per-run admin summary. |
 | `email_notification_report.py` | Entry point wiring classification to the relay (`classify_all()` + `dispatch()`), including per-account `deadline_date`/`display_name`. Warning and deactivation-notice outcomes are gated independently by `config.WARNING_DELIVERY_ENABLED`/`config.DEACTIVATE_DELIVERY_ENABLED` (both default `False`) — currently dry-run only. `main()` also runs the circuit-breaker check before dispatching, and always sends a counts-only admin summary to `config.ADMIN_SUMMARY_RECIPIENTS`. |
-| `circuit_breaker.py` | Pure fraction check (`check()`/`raise_if_tripped()`, plus `check_per_domain()`/`format_domain_trip_message()`) shared by both entry points' `main()` — evaluated **per domain** (PMO, 2026-08-14), so a domain with an implausibly large flagged fraction (`config.CIRCUIT_BREAKER_MAX_FRACTION`/`CIRCUIT_BREAKER_MIN_SAMPLE_SIZE`) is excluded from that run's report/dispatch instead of blocking every other domain. Both `main()`s email a trip notification to `config.ADMIN_SUMMARY_RECIPIENTS` via `email_relay.send_circuit_breaker_trip_email()` whenever any domain trips, and still abort entirely if every domain with candidates trips. |
+| `circuit_breaker.py` | Pure fraction check (`check()`/`raise_if_tripped()`, plus `check_per_domain()`/`format_domain_trip_message()`) shared by both entry points' `main()` — evaluated **per domain**, so a domain with an implausibly large flagged fraction (`config.CIRCUIT_BREAKER_MAX_FRACTION`/`CIRCUIT_BREAKER_MIN_SAMPLE_SIZE`) is excluded from that run's report/dispatch instead of blocking every other domain. Both `main()`s email a trip notification to `config.ADMIN_SUMMARY_RECIPIENTS` via `email_relay.send_circuit_breaker_trip_email()` whenever any domain trips, and still abort entirely if every domain with candidates trips. |
 | `tests/` | Unit tests (`test_snapshot_diff.py`, `test_snapshot_source.py`, `test_deactivation_report.py`, `test_email_relay.py`, `test_inactivity_logic.py`, `test_user_source.py`, `test_email_notification_report.py`, `test_circuit_breaker.py`, `test_config.py`, 82 tests). |
 
 `dry_run_report.py` (the old single-CSV entry point that tied
@@ -47,7 +47,7 @@ remains deleted — its role is now split between `deactivation_report.py`
 
 ```
 pip install -r requirements.txt
-pytest                     # run the test suite -- should show 79 passed
+pytest                     # run the test suite -- should show 82 passed
 cp .env.example .env       # then fill in the real SMTP relay values
 ```
 
@@ -68,9 +68,10 @@ Runs weekly, matching the CSV dump refresh cycle. Report files
 (`new_deactivations_report.csv`) are safe to keep indefinitely — no
 rotation/retention policy is needed.
 
-Both CSVs are expected to have columns: `created`, `disabled`,
-`display_name`, `dn`, `domain`, `domain_admin`, `email`, `last_logon`,
-`password_last_set`, `username`. Output is `new_deactivations_report.csv`
+Both CSVs are dumps exported from Grafana. They're expected to have
+columns: `created`, `disabled`, `display_name`, `dn`, `domain`,
+`domain_admin`, `email`, `last_logon`, `password_last_set`,
+`username`. Output is `new_deactivations_report.csv`
 (override via `NEW_DEACTIVATIONS_REPORT_CSV_PATH`) — one row per
 newly-deactivated account, `username` + `timestamp` only.
 
@@ -99,7 +100,7 @@ print(email_relay.build_warning_body(datetime(2026,1,10,tzinfo=timezone.utc), da
 Flipping either flag to `True` is a separate, explicit decision from
 wiring the pieces together. Every prerequisite (email copy, domain
 mapping, thresholds, admin recipients) is resolved — see "Picking
-this back up" below for the confirmed rollout order.
+this back up" below for the rollout order.
 
 ## Picking this back up
 
@@ -113,7 +114,7 @@ two lines in `config.py` directly, or run:
 python -c "import config; print(config.WARNING_DELIVERY_ENABLED, config.DEACTIVATE_DELIVERY_ENABLED)"
 ```
 
-Confirmed rollout order (PMO/IT):
+Rollout order:
 
 | Stage | `WARNING_DELIVERY_ENABLED` | `DEACTIVATE_DELIVERY_ENABLED` |
 |---|---|---|
@@ -124,13 +125,13 @@ Confirmed rollout order (PMO/IT):
 1. Pre-flight before the dry run: re-check `config.CIRCUIT_BREAKER_MAX_FRACTION`/
    `MIN_SAMPLE_SIZE` still make sense against the current account
    population **per domain** (the breaker is evaluated per domain, not
-   org-wide — PMO, 2026-08-14, since domains are inspected one at a
-   time across the org's 11 domains). Real per-domain fractions
-   checked 2026-08-14 ranged ~1%–74%; 3 of 11 domains (egrdrift,
-   egrtest, trygg2000) would trip the normal 50% threshold on the very
-   first backlog-clearing run — that's real accumulated backlog, not a
-   bad snapshot. The admin summary + circuit-breaker-trip email path
-   has been confirmed to land correctly at `config.ADMIN_SUMMARY_RECIPIENTS`.
+   org-wide, since domains are inspected one at a time across the
+   org's 11 domains). Real per-domain fractions checked 2026-08-14
+   ranged ~1%–74%; 3 of 11 domains (egrdrift, egrtest, trygg2000) would
+   trip the normal 50% threshold on the very first backlog-clearing
+   run — that's real accumulated backlog, not a bad snapshot. The
+   admin summary + circuit-breaker-trip email path lands correctly at
+   `config.ADMIN_SUMMARY_RECIPIENTS`.
 1a. **First run only**: set `FIRST_RUN_MODE=true` as an environment
    variable for that one invocation (both entry points read it) to
    raise the ceiling to `config.CIRCUIT_BREAKER_FIRST_RUN_MAX_FRACTION`
@@ -142,12 +143,11 @@ Confirmed rollout order (PMO/IT):
 2. Run dry — both flags `False` — long enough to confirm the weekly
    warned/notified/missing-email counts look plausible and stable,
    with no circuit-breaker trips.
-3. Flip `WARNING_DELIVERY_ENABLED = True` only once warning-email
-   sending is explicitly signed off; leave
-   `DEACTIVATE_DELIVERY_ENABLED = False` until those warnings have
-   been vetted with real recipients.
+3. Flip `WARNING_DELIVERY_ENABLED = True` once warning-email sending
+   is ready to go live; leave `DEACTIVATE_DELIVERY_ENABLED = False`
+   until those warnings have been reviewed with real recipients.
 4. Flip `DEACTIVATE_DELIVERY_ENABLED = True` once deactivation-notice
-   sending is separately signed off. To roll back a stage, flip the
+   sending is ready to go live too. To roll back a stage, flip the
    relevant flag back to `False` and redeploy — no other cleanup is
    needed (no per-user state is ever persisted, per the GDPR
    constraints in `CONTEXT.md`).
@@ -159,9 +159,9 @@ cron job, or CI pipeline is set up yet. This is a required setup step,
 not something already wired up. On Windows, a Task Scheduler action
 per weekly run needs to:
 
-1. Deliver fresh `previous`/`current` AD CSV snapshots to wherever the
-   task will read them from (this agent never fetches or stores them
-   itself — that's a separate upstream responsibility).
+1. Deliver fresh `previous`/`current` AD CSV snapshots (exported from
+   Grafana) to wherever the task will read them from — this agent
+   never fetches or stores them itself.
 2. Set `PREVIOUS_USER_SOURCE_CSV_PATH`/`CURRENT_USER_SOURCE_CSV_PATH`
    (and `NEW_DEACTIVATIONS_REPORT_CSV_PATH` if the default output
    location isn't wanted) as environment variables for the task, then
