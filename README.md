@@ -155,13 +155,31 @@ Rollout order:
 ## Scheduling weekly runs
 
 Nothing in this repo triggers a run automatically — no scheduled task,
-cron job, or CI pipeline is set up yet. This is a required setup step,
-not something already wired up. On Windows, a Task Scheduler action
-per weekly run needs to:
+cron job, or CI pipeline is set up. **This is a required setup step
+the incoming owner still needs to do, not something already wired
+up.**
 
-1. Deliver fresh `previous`/`current` AD CSV snapshots (exported from
-   Grafana) to wherever the task will read them from — this agent
-   never fetches or stores them itself.
+There's also an open design gap this setup needs to resolve first:
+this pipeline needs both a `previous` and a `current` CSV every run,
+but nothing yet defines how last week's `current` becomes this week's
+`previous`. Two ways to close that gap:
+- **A wrapper script keeps one rotating local copy.** Before each run,
+  it copies whatever it saved as "current" last time into "previous,"
+  then treats the newly-exported Grafana dump as the new "current."
+  Only one snapshot is ever retained between runs (not a history), so
+  this stays consistent with the project's GDPR no-retention stance.
+- **Whoever exports from Grafana hands over both files every week** —
+  the fresh dump plus whatever they kept from last time. This keeps
+  the task itself completely stateless, at the cost of relying on a
+  manual/external process to retain that one prior file correctly.
+
+Either way, on Windows a Task Scheduler action per weekly run needs
+to:
+
+1. Get a fresh `current` AD CSV snapshot (exported from Grafana) and a
+   `previous` snapshot resolved per whichever approach above is
+   chosen, to wherever the task will read them from — this agent
+   never fetches, rotates, or stores them itself.
 2. Set `PREVIOUS_USER_SOURCE_CSV_PATH`/`CURRENT_USER_SOURCE_CSV_PATH`
    (and `NEW_DEACTIVATIONS_REPORT_CSV_PATH` if the default output
    location isn't wanted) as environment variables for the task, then
