@@ -113,6 +113,17 @@ to report/dispatch), the run still raises `CircuitBreakerTripped` and
 aborts entirely, same as the original whole-run behavior. Guards
 against a bad CSV dump being misread as a mass deactivation event.
 
+**First-run mode** (PMO, 2026-08-14): real per-domain fractions
+checked the same day ranged ~1%–74% — 3 of the 11 domains (egrdrift,
+egrtest, trygg2000) exceed the normal 50% threshold on the very first
+backlog-clearing run, which reflects genuine years-old backlog, not a
+bad snapshot. `config.circuit_breaker_threshold()` returns
+`CIRCUIT_BREAKER_FIRST_RUN_MAX_FRACTION` (default 80%) instead of the
+normal `CIRCUIT_BREAKER_MAX_FRACTION` when `FIRST_RUN_MODE=true` is
+set as an environment variable for that one invocation — deliberately
+env-var-opt-in rather than a `config.py` edit, so it can't silently
+stay elevated for a later, ordinary weekly run.
+
 ## GDPR Constraints
 - No persistent storage of user data beyond a single run's processing:
   both snapshots are supplied fresh each run and never retained.

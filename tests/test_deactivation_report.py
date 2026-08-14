@@ -113,6 +113,37 @@ def test_main_writes_report_when_circuit_breaker_not_tripped(tmp_path, monkeypat
     assert report_path.exists()
 
 
+def test_main_first_run_mode_lets_a_high_backlog_domain_through(tmp_path, monkeypatch):
+    # 15/20 (75%) newly disabled would trip the normal 50% threshold
+    # (see test_main_aborts_without_writing_report_when_circuit_breaker_trips),
+    # but FIRST_RUN_MODE raises the ceiling to 80% for this one run, so
+    # it must go through and land in the report.
+    usernames = [f"user{i}" for i in range(20)]
+    previous_path = tmp_path / "previous.csv"
+    current_path = tmp_path / "current.csv"
+    previous_path.write_text(
+        CSV_HEADER + "".join(_user_row(u, "false") for u in usernames), encoding="utf-8"
+    )
+    current_path.write_text(
+        CSV_HEADER
+        + "".join(_user_row(u, "true") for u in usernames[:15])
+        + "".join(_user_row(u, "false") for u in usernames[15:]),
+        encoding="utf-8",
+    )
+    report_path = tmp_path / "report.csv"
+    monkeypatch.setattr(config, "PREVIOUS_USER_SOURCE_CSV_PATH", str(previous_path))
+    monkeypatch.setattr(config, "CURRENT_USER_SOURCE_CSV_PATH", str(current_path))
+    monkeypatch.setattr(config, "NEW_DEACTIVATIONS_REPORT_CSV_PATH", str(report_path))
+    monkeypatch.setattr(config, "FIRST_RUN_MODE", True)
+    monkeypatch.setattr(config, "CIRCUIT_BREAKER_FIRST_RUN_MAX_FRACTION", 0.8)
+
+    deactivation_report.main()  # must not raise
+
+    with open(report_path, newline="", encoding="utf-8") as f:
+        reported_usernames = {row["username"] for row in csv.DictReader(f)}
+    assert reported_usernames == set(usernames[:15])
+
+
 def test_main_excludes_only_the_tripped_domain_when_another_domain_is_clean(tmp_path, monkeypatch):
     # egrdrift: 15/20 (75%) newly disabled -- trips. kesko: 1/20 (5%) --
     # stays clean. Per-domain policy (PMO, 2026-08-14) means kesko's

@@ -135,6 +135,34 @@ DEACTIVATE_DELIVERY_ENABLED = False
 CIRCUIT_BREAKER_MAX_FRACTION = float(os.environ.get("CIRCUIT_BREAKER_MAX_FRACTION", "0.5"))
 CIRCUIT_BREAKER_MIN_SAMPLE_SIZE = int(os.environ.get("CIRCUIT_BREAKER_MIN_SAMPLE_SIZE", "20"))
 
+# --- FIRST_RUN_MODE / CIRCUIT_BREAKER_FIRST_RUN_MAX_FRACTION (PMO,
+# 2026-08-14): the very first backlog-clearing run is expected to flag
+# a much larger fraction than any normal weekly run (per-domain
+# fractions observed 2026-08-14 ranged ~1%-74%, vs. the 50% threshold
+# tuned for steady-state weekly deltas) -- that's real accumulated
+# backlog, not a bad snapshot. CIRCUIT_BREAKER_FIRST_RUN_MAX_FRACTION
+# is a one-time, higher ceiling for that pass only; it must be
+# explicitly opted into per invocation via FIRST_RUN_MODE=true rather
+# than a persistent config.py edit, so it can't accidentally stay
+# active for a later, ordinary weekly run. Use
+# circuit_breaker_threshold() below rather than reading either
+# constant directly. ---
+CIRCUIT_BREAKER_FIRST_RUN_MAX_FRACTION = float(
+    os.environ.get("CIRCUIT_BREAKER_FIRST_RUN_MAX_FRACTION", "0.8")
+)
+FIRST_RUN_MODE = os.environ.get("FIRST_RUN_MODE", "false").strip().lower() in (
+    "true",
+    "1",
+    "yes",
+)
+
+
+def circuit_breaker_threshold() -> float:
+    """The fraction threshold this run should use -- the elevated
+    first-run ceiling if FIRST_RUN_MODE is opted into for this
+    invocation, otherwise the normal steady-state threshold."""
+    return CIRCUIT_BREAKER_FIRST_RUN_MAX_FRACTION if FIRST_RUN_MODE else CIRCUIT_BREAKER_MAX_FRACTION
+
 # --- Admin run-summary recipients (confirmed by PMO 2026-08-07): a
 # short summary of each email-notification run (counts:
 # would-send/sent, missing-email, circuit-breaker-tripped) goes to these

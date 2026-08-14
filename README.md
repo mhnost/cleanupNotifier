@@ -35,7 +35,7 @@ already-existing system owns deactivation end to end. It has two jobs:
 | `email_relay.py` | SMTP relay + email content: `send_email`/`send_warning_email`/`send_deactivation_notice_email`, `build_warning_body`/`build_deactivation_notice_body` (greeting by `display_name`, last logon date, deadline date, domain via `DOMAIN_DISPLAY_NAMES`), plus `build_summary_body`/`send_summary_email` for the per-run admin summary. |
 | `email_notification_report.py` | Entry point wiring classification to the relay (`classify_all()` + `dispatch()`), including per-account `deadline_date`/`display_name`. Warning and deactivation-notice outcomes are gated independently by `config.WARNING_DELIVERY_ENABLED`/`config.DEACTIVATE_DELIVERY_ENABLED` (both default `False`) — currently dry-run only. `main()` also runs the circuit-breaker check before dispatching, and always sends a counts-only admin summary to `config.ADMIN_SUMMARY_RECIPIENTS`. |
 | `circuit_breaker.py` | Pure fraction check (`check()`/`raise_if_tripped()`, plus `check_per_domain()`/`format_domain_trip_message()`) shared by both entry points' `main()` — evaluated **per domain** (PMO, 2026-08-14), so a domain with an implausibly large flagged fraction (`config.CIRCUIT_BREAKER_MAX_FRACTION`/`CIRCUIT_BREAKER_MIN_SAMPLE_SIZE`) is excluded from that run's report/dispatch instead of blocking every other domain. Both `main()`s email a trip notification to `config.ADMIN_SUMMARY_RECIPIENTS` via `email_relay.send_circuit_breaker_trip_email()` whenever any domain trips, and still abort entirely if every domain with candidates trips. |
-| `tests/` | Unit tests (`test_snapshot_diff.py`, `test_snapshot_source.py`, `test_deactivation_report.py`, `test_email_relay.py`, `test_inactivity_logic.py`, `test_user_source.py`, `test_email_notification_report.py`, `test_circuit_breaker.py`, 79 tests). |
+| `tests/` | Unit tests (`test_snapshot_diff.py`, `test_snapshot_source.py`, `test_deactivation_report.py`, `test_email_relay.py`, `test_inactivity_logic.py`, `test_user_source.py`, `test_email_notification_report.py`, `test_circuit_breaker.py`, `test_config.py`, 82 tests). |
 
 `dry_run_report.py` (the old single-CSV entry point that tied
 classification, reporting, and audit-logging together in one script)
@@ -125,9 +125,20 @@ Confirmed rollout order (PMO/IT):
    `MIN_SAMPLE_SIZE` still make sense against the current account
    population **per domain** (the breaker is evaluated per domain, not
    org-wide — PMO, 2026-08-14, since domains are inspected one at a
-   time across the org's 11 domains), and confirm the admin summary +
-   circuit-breaker-trip emails land correctly at
-   `config.ADMIN_SUMMARY_RECIPIENTS`.
+   time across the org's 11 domains). Real per-domain fractions
+   checked 2026-08-14 ranged ~1%–74%; 3 of 11 domains (egrdrift,
+   egrtest, trygg2000) would trip the normal 50% threshold on the very
+   first backlog-clearing run — that's real accumulated backlog, not a
+   bad snapshot. The admin summary + circuit-breaker-trip email path
+   has been confirmed to land correctly at `config.ADMIN_SUMMARY_RECIPIENTS`.
+1a. **First run only**: set `FIRST_RUN_MODE=true` as an environment
+   variable for that one invocation (both entry points read it) to
+   raise the ceiling to `config.CIRCUIT_BREAKER_FIRST_RUN_MAX_FRACTION`
+   (default `0.8`, override via env var same as the other breaker
+   knobs) so the initial backlog clears without tripping. Don't set it
+   for any run after that — ordinary weekly runs should use the normal
+   50% threshold, since a real steady-state run tripping it is exactly
+   the signal the breaker exists to catch.
 2. Run dry — both flags `False` — long enough to confirm the weekly
    warned/notified/missing-email counts look plausible and stable,
    with no circuit-breaker trips.

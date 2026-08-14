@@ -74,7 +74,7 @@ def main() -> None:
     }
     results_by_domain = circuit_breaker.check_per_domain(
         counts_by_domain,
-        threshold=config.CIRCUIT_BREAKER_MAX_FRACTION,
+        threshold=config.circuit_breaker_threshold(),
         min_sample_size=config.CIRCUIT_BREAKER_MIN_SAMPLE_SIZE,
     )
     tripped = {domain: result for domain, result in results_by_domain.items() if result.tripped}
@@ -94,6 +94,12 @@ def main() -> None:
             raise circuit_breaker.CircuitBreakerTripped(message)
 
     write_report(usernames, config.NEW_DEACTIVATIONS_REPORT_CSV_PATH)
+    if config.FIRST_RUN_MODE:
+        print(
+            f"FIRST_RUN_MODE: circuit breaker threshold elevated to "
+            f"{config.CIRCUIT_BREAKER_FIRST_RUN_MAX_FRACTION:.0%} for this run.",
+            file=sys.stderr,
+        )
     print(f"{len(usernames)} newly-deactivated account(s) found.", file=sys.stderr)
     if tripped:
         print(
